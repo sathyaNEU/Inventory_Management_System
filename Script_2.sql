@@ -159,6 +159,14 @@ CREATE SEQUENCE suppliers_seq start with 5000;
 CREATE SEQUENCE products_seq start with 6000;
 CREATE SEQUENCE productorder_seq start with 7000;
 CREATE SEQUENCE productsupply_seq start with 8000;
+
+ 
+create or replace view inv_order_requests as 
+(
+select p.prodid, p.supid, p.name, reorderqty*info.cnt pending_order_req  from products  p join 
+(select prodid, count(productsupply_id) cnt from productsupply  where status = 'N' group by prodid) info
+on p.prodid = info.prodid
+);
  
 create or replace view sum_all_order_placed as (
 select po.prodid, sum(po.qty) outward_stock from orders o join productorder po on o.orderid = po.orderid  
@@ -167,7 +175,7 @@ select po.prodid, sum(po.qty) outward_stock from orders o join productorder po o
 
 create or replace view sum_all_fulfilled_qty as
 WITH sq as (
-select prodid, count(productsupply_id) as cnt from productsupply where status='Y' group by prodid
+select prodid, count(productsupply_id)-1 as cnt from productsupply where status='Y' group by prodid
 )
 select products.prodid, nvl((sq.cnt * products.reorderqty),0) + products.qtyinstock as inward_stock from products left join sq on products.prodid = sq.prodid;
 
@@ -446,6 +454,7 @@ V_CTGRYID INTEGER;
 V_CALC_QTY INTEGER;
 V_NAME VARCHAR(500);
 V_DESC VARCHAR(500);
+V_DISC VARCHAR(500);
 V_SUPL_NAME VARCHAR(500);
 V_CTGRY_NAME VARCHAR(500);
 V_SUPLNAME VARCHAR(20);
@@ -458,7 +467,7 @@ V_SUPL_NAME := TRIM(PI_SUPL_NAME);
 V_CTGRY_NAME := TRIM(PI_CTGRY_NAME);
 V_PID := GET_PRODUCT_ID(V_NAME);
 V_SID := GET_SUPPLIER_ID_USING_NAME(V_SUPL_NAME);
-IF(V_DESC IS NULL) THEN
+IF(TRIM(PI_DISC_NAME) IS NULL) THEN
     V_DISCID := NULL;
 ELSE
     V_DISCID := GET_DISCOUNT_ID_USING_NAME(PI_DISC_NAME);
@@ -607,7 +616,7 @@ ELSE
         V_ERRM := 'CATEGORY NAME ALREADY EXIST';
         RAISE CUSTOM_EXCEPTION;
     ELSE 
-        INSERT INTO CATEGORIES VALUES (DISCOUNTS_SEQ.NEXTVAL, INITCAP(V_NAME));
+        INSERT INTO CATEGORIES VALUES (CATEGORIES_SEQ.NEXTVAL, INITCAP(V_NAME));
         COMMIT;
         DBMS_OUTPUT.PUT_LINE('CATEGORY ADDED SUCCESSFULY');
     END IF;
@@ -711,6 +720,8 @@ END;
 CREATE OR REPLACE PROCEDURE TOGGLE_SHIP_STATUS_UP(PI_OID INTEGER) AS
 V_OID ORDERS.ORDERID%TYPE;
 V_SHIPSTATUS ORDERS.SHIPSTATUS%TYPE;
+v_in_qty INTEGER;
+v_out_qty INTEGER;
 BEGIN
 IF(PI_OID IS NULL OR PI_OID = '') THEN
     DBMS_OUTPUT.PUT_LINE('ORDER ID CANNOT BE NULL OR EMPTY');
@@ -719,10 +730,24 @@ SELECT ORDERID INTO V_OID FROM ORDERS WHERE ORDERID = PI_OID;
 SELECT SHIPSTATUS INTO V_SHIPSTATUS FROM ORDERS WHERE ORDERID = V_OID;
 IF V_SHIPSTATUS = 'IN-TRANSIT' THEN
 UPDATE ORDERS SET SHIPSTATUS = 'DELIVERED' , dlvry_date = SYSDATE WHERE ORDERID = V_OID;
-else
-UPDATE ORDERS SET SHIPSTATUS = (CASE WHEN SHIPSTATUS = 'PROCESSING' THEN 'IN-TRANSIT'                                     
-                                     WHEN SHIPSTATUS = 'DELIVERED' THEN 'DELIVERED' END) 
-                                WHERE ORDERID = V_OID;
+ELSIF V_SHIPSTATUS = 'PROCESSING' THEN
+UPDATE ORDERS SET SHIPSTATUS = 'IN-TRANSIT' WHERE ORDERID = V_OID;
+FOR I IN (
+SELECT PRODID FROM PRODUCTORDER WHERE ORDERID = PI_OID
+)
+LOOP
+            SELECT inward_stock, outward_stock INTO v_in_qty, v_out_qty
+            FROM all_stock_info
+            WHERE prodid = I.PRODID;
+ 
+            -- Check if outward stock is greater than or equal to inward stock
+            IF v_out_qty >= v_in_qty THEN
+                -- Call the procedure to add a new product supply record
+                ADD_PRODUCT_SUPPLY(I.PRODID);
+            END IF;
+END LOOP;
+ELSE
+UPDATE ORDERS SET SHIPSTATUS = 'DELIVERED' WHERE ORDERID = V_OID;
 END IF;
 COMMIT;
 DBMS_OUTPUT.PUT_LINE('ORDER UPDATED');
@@ -813,10 +838,8 @@ BEGIN
         p_dt + 3, -- Default delivery date
         v_custid
     );
-    COMMIT;
-    returned_order_id:=v_orderid;
-    DBMS_OUTPUT.PUT_LINE('Order inserted successfully.');
-    
+    -- COMMIT;
+    returned_order_id:=v_orderid;    
 EXCEPTION
     WHEN NO_DATA_FOUND THEN
         DBMS_OUTPUT.PUT_LINE('Customer not found');   
@@ -917,6 +940,7 @@ BEGIN
         IF v_available_qty < p_qty THEN
             -- Quantity not available, provide a manual error message
             DBMS_OUTPUT.PUT_LINE('Insufficient quantity available for the product.');
+            ROLLBACK;
         ELSE
             -- Use the productorder_seq sequence to generate the next value for prodorder_id
             SELECT productorder_seq.nextval INTO v_prodorder_id FROM dual;
@@ -1743,29 +1767,16 @@ END UPDATE_CUSTOMER;
 CREATE OR REPLACE PROCEDURE UPDATE_INV_QTY(PI_PID INTEGER) AS
 BEGIN
 UPDATE PRODUCTS SET QTYINSTOCK = QTYINSTOCK + REORDERQTY WHERE PRODID = PI_PID;
-IF SQL%ROWCOUNT > 0 THEN
-    DBMS_OUTPUT.PUT_LINE('RESTOCKED SUCCESSFULLY');
-    COMMIT;
-ELSE
-    DBMS_OUTPUT.PUT_LINE('PRODUCT NOT FOUND');
-END IF;
+DBMS_OUTPUT.PUT_LINE('RESTOCKED SUCCESSFULLY');
+COMMIT;
 EXCEPTION
 WHEN OTHERS THEN
-   DBMS_OUTPUT.PUT_LINE('SOMETHIGN WENT WRONG, CONTACT ADMIN WITH SQL CODE ' || SQLCODE); 
+   DBMS_OUTPUT.PUT_LINE('SOMETHING WENT WRONG, CONTACT ADMIN WITH SQL CODE ' || SQLCODE); 
 END;
 /
 
--- places an order only if there are no existing orders with 'N' flag into the product supply table 
 
- 
 -- for each product, it says how much does the supplier needs to refill back to the inventory
-create or replace view inv_order_requests as 
-(
-select p.prodid, p.supid, p.name, reorderqty*info.cnt pending_order_req  from products  p join 
-(select prodid, count(productsupply_id) cnt from productsupply  where status = 'N' group by prodid) info
-on p.prodid = info.prodid
-);
-
 CREATE OR REPLACE PROCEDURE GET_SUPPLIER_ORDER_REQ_USING_PRODNAME(PI_SUPNAME VARCHAR, PI_NAME VARCHAR) AS
 V_PID PRODUCTS.PRODID%TYPE;
 V_SID SUPPLIERS.SUPID%TYPE;
@@ -1818,17 +1829,22 @@ END;
 CREATE OR REPLACE PROCEDURE REFIL_QTY(PI_PID INTEGER) AS
 V_PID PRODUCTS.PRODID%TYPE;
 V_SID SUPPLIERS.SUPID%TYPE;
+V_HELP INTEGER :=0;
 V_ERRM VARCHAR(100);
 CUSTOM_EXCEPTION EXCEPTION;
 BEGIN
-SELECT MAX(PRODID) INTO V_PID FROM PRODUCTSUPPLY WHERE PRODID = PI_PID;
-UPDATE PRODUCTSUPPLY SET STATUS = 'Y', REFIL_DATE = SYSDATE WHERE PRODID = V_PID;
-UPDATE_INV_QTY(V_PID);
-COMMIT;
+SELECT 1 INTO V_HELP FROM PRODUCTSUPPLY WHERE PRODID = PI_PID AND STATUS='N';
+IF (V_HELP = 1) THEN
+UPDATE PRODUCTSUPPLY SET STATUS = 'Y', REFIL_DATE = SYSDATE WHERE PRODID = PI_PID AND STATUS='N';
+UPDATE_INV_QTY(PI_PID);
 DBMS_OUTPUT.PUT_LINE('PRODUCT REFILLED SUCCESSFULLY');
+COMMIT;
+END IF;
 EXCEPTION
 WHEN NO_DATA_FOUND THEN
     DBMS_OUTPUT.PUT_LINE('NO ORDER PLACED INITIALLY');
+WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('SOMETHING WENT WRONG');
 END;
 /
                                                     

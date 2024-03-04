@@ -1,6 +1,7 @@
 --Run this script as customer
 ALTER SESSION SET CURRENT_SCHEMA = IMS_ADMIN;
 SET SERVEROUTPUT ON;
+
 declare
     v_orderid_1 integer;
 begin
