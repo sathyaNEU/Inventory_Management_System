@@ -4,8 +4,9 @@
 
 **Enhance Inventory Transparency**: Real-time addition of categories and products for seamless stock monitoring and accuracy
 
-**Streamline Order Processing**: Empower customers to modify orders and add products during the "processing" stage, ensuring efficient fulfillment
-Proactive Restocking Mechanism: Automatically generate product supply records for timely reorders, aiding inventory management
+**Streamline Order Processing**: Empower customers to modify orders and add products during the "processing" stage, ensuring efficient fulfillment
+
+**Proactive Restocking Mechanism:** Automatically generate product supply records for timely reorders, aiding inventory management
 
 **Dynamic Pricing and Billing**: Apply discounts, calculate final prices, and generate accurate total bills for precise financial transactions
 
