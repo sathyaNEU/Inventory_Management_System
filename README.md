@@ -1,5 +1,5 @@
-# Inventory_Management_System
-DMDD Group Project - Inventory Management System
+# Inventory Management System Implementation using Oracle PL/SQL
+**DMDD Group Project - Inventory Management System**
 
 IMSDB_ADMIN script to be run 
 1.  Script1.sql creates application admin IMS_ADMIN and grants privileges.
@@ -28,3 +28,9 @@ Login as Customer with credentials for steps 9
 
 Login as Supplier with credentials for steps 9
 10.  Script 10.sql to generate views for supplier
+
+**Physical Model (Oracle 19c)**
+![image](https://github.com/sathyaNEU/Inventory_Management_System/assets/144740003/5f099bdd-15e2-4a96-aa87-39bbf9424bf0)
+
+**Please refer to [DMDD FINAL.pdf](https://github.com/sathyaNEU/Inventory_Management_System/files/14487278/DMDD.FINAL.pdf) to know more about our project**
+
